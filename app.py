@@ -2,16 +2,18 @@
 """
 Production-Grade Flask App for JobYaari AI Chatbot
 Features:
+- Real-time scraping only (no fake data)
+- Website structure inspector endpoint
 - Robust error handling and logging
 - Network resilience with retries
 - Rate limiting and caching
 - Health check endpoint
-- Graceful degradation
 """
 
 import os
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
@@ -19,6 +21,9 @@ import requests
 from typing import Dict, Any, List, Optional
 from functools import lru_cache
 import time
+
+# BeautifulSoup for inspector
+from bs4 import BeautifulSoup
 
 # Try to import the OpenAI-style SDK
 try:
@@ -33,7 +38,9 @@ try:
 except Exception:
     JobYaariScraper = None
 
-# Configuration
+# ============================================================
+# CONFIGURATION
+# ============================================================
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 OPENROUTER_CHAT_ENDPOINT = f"{OPENROUTER_BASE}/chat/completions"
@@ -46,7 +53,9 @@ REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 CACHE_DURATION = 300  # 5 minutes
 
-# Flask setup
+# ============================================================
+# FLASK SETUP
+# ============================================================
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)
 
@@ -61,7 +70,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("jobyaari")
 
-# In-memory knowledge base
+# ============================================================
+# GLOBAL VARIABLES
+# ============================================================
 KNOWLEDGE_BASE: Dict[str, List[Dict[str, Any]]] = {}
 LAST_REFRESH_TIME: Optional[datetime] = None
 REQUEST_CACHE: Dict[str, tuple] = {}  # {query: (response, timestamp)}
@@ -76,29 +87,39 @@ if SDK_AVAILABLE and OPENROUTER_API_KEY:
         logger.warning(f"SDK init failed: {e}")
 
 
-# -------------------------
-# Knowledge Base Management
-# -------------------------
+# ============================================================
+# KNOWLEDGE BASE MANAGEMENT - REAL DATA ONLY
+# ============================================================
 def load_knowledge_base():
-    """Load knowledge base with error handling"""
+    """Load knowledge base - ONLY from scraped data file"""
     global KNOWLEDGE_BASE, LAST_REFRESH_TIME
     
     if os.path.exists(KNOWLEDGE_BASE_FILE):
         try:
             with open(KNOWLEDGE_BASE_FILE, "r", encoding="utf-8") as f:
-                KNOWLEDGE_BASE = json.load(f)
+                data = json.load(f)
             
-            total = sum(len(v) for v in KNOWLEDGE_BASE.values())
-            LAST_REFRESH_TIME = datetime.fromtimestamp(os.path.getmtime(KNOWLEDGE_BASE_FILE))
-            logger.info(f"✓ Loaded {total} jobs from {KNOWLEDGE_BASE_FILE}")
-            return True
+            # Verify it has real data
+            total = sum(len(v) for v in data.values())
+            
+            if total > 0:
+                KNOWLEDGE_BASE = data
+                LAST_REFRESH_TIME = datetime.fromtimestamp(os.path.getmtime(KNOWLEDGE_BASE_FILE))
+                logger.info(f"✓ Loaded {total} REAL jobs from {KNOWLEDGE_BASE_FILE}")
+                return True
+            else:
+                logger.warning(f"{KNOWLEDGE_BASE_FILE} exists but has 0 jobs")
+                KNOWLEDGE_BASE = {}
+                return False
+                
         except Exception as e:
             logger.exception(f"Failed to load knowledge base: {e}")
-            KNOWLEDGE_BASE = _get_empty_kb()
+            KNOWLEDGE_BASE = {}
             return False
     else:
-        logger.info(f"{KNOWLEDGE_BASE_FILE} not found - using empty KB")
-        KNOWLEDGE_BASE = _get_empty_kb()
+        logger.warning(f"{KNOWLEDGE_BASE_FILE} not found - NO DATA LOADED")
+        logger.warning("Please run scraper or use /api/refresh endpoint")
+        KNOWLEDGE_BASE = {}
         return False
 
 
@@ -159,6 +180,21 @@ def trimmed_context_for_prompt(context: Dict, max_per_category=MAX_JOBS_PER_CATE
 
 def build_system_prompt(context: Dict) -> str:
     """Build optimized system prompt"""
+    
+    # Check if we have any data
+    total_jobs = sum(len(v) for v in context.values())
+    
+    if total_jobs == 0:
+        return """You are JobYaari AI Assistant. Currently, there is NO job data available in the system.
+
+Please inform the user:
+- The job database is empty
+- They need to refresh the data using the "Refresh Live Data" button
+- Or the scraper needs to be run to populate data
+- Apologize for the inconvenience
+
+Be polite and helpful."""
+    
     trimmed = trimmed_context_for_prompt(context)
     
     try:
@@ -179,7 +215,7 @@ INSTRUCTIONS:
 - Format responses with bullet points for multiple jobs
 - Use professional but friendly tone
 
-KNOWLEDGE BASE:
+KNOWLEDGE BASE (REAL-TIME DATA):
 {kb_json}
 
 Remember: Only reference these jobs. Do not hallucinate information."""
@@ -187,9 +223,9 @@ Remember: Only reference these jobs. Do not hallucinate information."""
     return system_prompt
 
 
-# -------------------------
-# AI Query Functions
-# -------------------------
+# ============================================================
+# AI QUERY FUNCTIONS
+# ============================================================
 @lru_cache(maxsize=100)
 def get_cached_response(query: str) -> Optional[str]:
     """Check cache for recent responses"""
@@ -214,7 +250,7 @@ def query_openrouter_with_retry(user_message: str, system_prompt: str, retries=M
         except requests.exceptions.Timeout as e:
             logger.warning(f"Timeout on attempt {attempt + 1}/{retries}: {e}")
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(2 ** attempt)
                 continue
             return "⏱️ Request timed out. The AI service may be busy. Please try again."
         
@@ -226,13 +262,13 @@ def query_openrouter_with_retry(user_message: str, system_prompt: str, retries=M
             return "🔌 Network connection error. Please check your internet and try again."
         
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:  # Rate limit
+            if e.response.status_code == 429:
                 logger.warning(f"Rate limit hit on attempt {attempt + 1}")
                 if attempt < retries - 1:
                     time.sleep(5 * (attempt + 1))
                     continue
                 return "⚠️ Rate limit reached. Please wait a moment and try again."
-            elif e.response.status_code >= 500:  # Server error
+            elif e.response.status_code >= 500:
                 logger.error(f"Server error {e.response.status_code}")
                 if attempt < retries - 1:
                     time.sleep(3 ** attempt)
@@ -309,7 +345,19 @@ def query_ai_model(user_message: str, context: Dict) -> str:
     """Main AI query function with caching"""
     
     if not OPENROUTER_API_KEY:
-        return "⚙️ AI model not configured. Please contact administrator."
+        return "⚙️ AI model not configured. Please set OPENROUTER_API_KEY environment variable."
+    
+    # Check if we have data
+    total_jobs = sum(len(v) for v in context.values())
+    if total_jobs == 0:
+        return """📭 **No job data available!**
+
+The job database is currently empty. Please:
+1. Click the **"Refresh Live Data"** button to scrape fresh jobs
+2. Wait for the scraping to complete
+3. Then ask your questions
+
+The scraper will fetch real-time government job notifications from JobYaari.com."""
     
     # Check cache
     cached = get_cached_response(user_message)
@@ -327,9 +375,9 @@ def query_ai_model(user_message: str, context: Dict) -> str:
     return response
 
 
-# -------------------------
-# Scraper Integration
-# -------------------------
+# ============================================================
+# SCRAPER INTEGRATION
+# ============================================================
 def refresh_and_scrape_data():
     """Refresh job data with enhanced error handling"""
     global KNOWLEDGE_BASE
@@ -339,12 +387,12 @@ def refresh_and_scrape_data():
         return False, "Scraper module not found", {}
     
     try:
-        logger.info("Starting scraper...")
+        logger.info("Starting REAL-TIME scraper...")
         scraper = JobYaariScraper(timeout=20, max_retries=3)
         results = scraper.scrape_all_categories(
             categories=["Engineering", "Science", "Commerce", "Education"],
             max_jobs=7,
-            delay=3  # Increased delay for politeness
+            delay=3
         )
         
         total_jobs = sum(len(v) for v in results.values())
@@ -352,11 +400,11 @@ def refresh_and_scrape_data():
         if total_jobs > 0:
             KNOWLEDGE_BASE = results
             save_knowledge_base()
-            logger.info(f"✓ Scraped {total_jobs} jobs")
-            return True, f"Successfully refreshed {total_jobs} jobs", results
+            logger.info(f"✓ Scraped {total_jobs} REAL jobs")
+            return True, f"Successfully refreshed {total_jobs} real-time jobs", results
         else:
-            logger.warning("Scraper returned 0 jobs")
-            return False, "No jobs found. Using cached data.", {}
+            logger.warning("Scraper returned 0 jobs - website structure may have changed")
+            return False, "Scraper found 0 jobs. Website structure may have changed. Use /api/inspect to diagnose.", {}
     
     except requests.exceptions.ConnectionError as e:
         logger.error(f"Network error during scraping: {e}")
@@ -367,9 +415,144 @@ def refresh_and_scrape_data():
         return False, f"Scraper error: {str(e)}", {}
 
 
-# -------------------------
-# Flask Routes
-# -------------------------
+# ============================================================
+# WEBSITE STRUCTURE INSPECTOR
+# ============================================================
+@app.route("/api/inspect", methods=["GET"])
+def route_inspect():
+    """Inspect JobYaari.com structure to diagnose scraping issues"""
+    try:
+        logger.info("Running website inspector...")
+        
+        url = "https://www.jobyaari.com/category/engineering"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            return jsonify({
+                "error": f"Failed to fetch {url}",
+                "status_code": response.status_code
+            }), 500
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Find potential job elements
+        all_elements = soup.find_all(['article', 'div', 'li'], class_=True, limit=100)
+        
+        job_candidates = []
+        element_analysis = []
+        
+        for elem in all_elements[:20]:  # Analyze first 20
+            tag = elem.name
+            classes = ' '.join(elem.get('class', []))
+            text = elem.get_text(strip=True)[:100]
+            
+            links = elem.find_all('a', href=True)
+            
+            element_info = {
+                'tag': tag,
+                'classes': classes,
+                'text_preview': text,
+                'link_count': len(links)
+            }
+            
+            if links:
+                first_link = links[0]
+                link_text = first_link.get_text(strip=True)
+                link_href = first_link.get('href', '')
+                
+                element_info['first_link_text'] = link_text[:80]
+                element_info['first_link_url'] = link_href[:80]
+                
+                # Check if this is a job posting
+                is_job = (len(link_text) > 10 and 
+                         any(keyword in link_text.lower() 
+                             for keyword in ['recruitment', 'notification', 'vacancy', 
+                                           'job', 'exam', 'admit', 'result', '2024', '2025']))
+                
+                element_info['is_potential_job'] = is_job
+                
+                if is_job:
+                    job_candidates.append({
+                        'title': link_text,
+                        'url': link_href,
+                        'tag': tag,
+                        'classes': classes
+                    })
+            
+            element_analysis.append(element_info)
+        
+        # Analyze patterns
+        if job_candidates:
+            tag_counts = {}
+            class_counts = {}
+            
+            for job in job_candidates:
+                tag_counts[job['tag']] = tag_counts.get(job['tag'], 0) + 1
+                
+                for cls in job['classes'].split():
+                    if cls:
+                        class_counts[cls] = class_counts.get(cls, 0) + 1
+            
+            most_common_tag = max(tag_counts.items(), key=lambda x: x[1])[0] if tag_counts else 'div'
+            most_common_class = max(class_counts.items(), key=lambda x: x[1])[0] if class_counts else 'post'
+            
+            recommended_selector = f"{most_common_tag}.{most_common_class}"
+            
+            return jsonify({
+                "success": True,
+                "url": url,
+                "total_elements_analyzed": len(all_elements),
+                "jobs_found": len(job_candidates),
+                "recommended_selector": recommended_selector,
+                "most_common_tag": most_common_tag,
+                "most_common_class": most_common_class,
+                "tag_counts": tag_counts,
+                "class_counts": dict(sorted(class_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
+                "sample_jobs": job_candidates[:5],
+                "element_analysis": element_analysis[:10],
+                "fix_instructions": f"""
+To fix the scraper, update scraper.py:
+
+1. Find the _find_job_nodes method
+2. Add this selector at the TOP of the selectors list:
+   "{recommended_selector}"
+
+Example:
+def _find_job_nodes(self, soup: BeautifulSoup) -> List:
+    selectors = [
+        "{recommended_selector}",  # ADD THIS FIRST
+        "article.post",
+        "div.job-listing",
+        # ... rest
+    ]
+"""
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "No job candidates found in first 20 elements",
+                "url": url,
+                "total_elements_analyzed": len(all_elements),
+                "element_analysis": element_analysis[:10],
+                "recommendation": "Website might use JavaScript to load content. Consider using Selenium or check if URL structure changed."
+            })
+    
+    except Exception as e:
+        logger.exception(f"Inspector error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================
+# FLASK ROUTES
+# ============================================================
 @app.route("/", methods=["GET"])
 def home():
     """Serve main page"""
@@ -390,6 +573,7 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "jobs_loaded": total_jobs,
+        "has_real_data": total_jobs > 0,
         "last_refresh": LAST_REFRESH_TIME.isoformat() if LAST_REFRESH_TIME else None,
         "ai_configured": bool(OPENROUTER_API_KEY),
         "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -429,7 +613,7 @@ def route_chat():
 def route_refresh():
     """Refresh job data endpoint"""
     try:
-        logger.info("Refresh requested")
+        logger.info("Refresh requested - will scrape REAL-TIME data")
         success, message, data = refresh_and_scrape_data()
         
         total = sum(len(v) for v in KNOWLEDGE_BASE.values())
@@ -467,6 +651,7 @@ def route_stats():
         
         return jsonify({
             "total_jobs": total,
+            "has_real_data": total > 0,
             "by_category": by_category,
             "last_updated": LAST_REFRESH_TIME.isoformat() if LAST_REFRESH_TIME else None,
             "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -487,9 +672,9 @@ def route_kb():
         return jsonify({"error": "Failed to load knowledge base"}), 500
 
 
-# -------------------------
-# Error Handlers
-# -------------------------
+# ============================================================
+# ERROR HANDLERS
+# ============================================================
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": "Endpoint not found"}), 404
@@ -501,23 +686,35 @@ def internal_error(e):
     return jsonify({"error": "Internal server error"}), 500
 
 
-# -------------------------
-# Startup
-# -------------------------
+# ============================================================
+# STARTUP
+# ============================================================
 if __name__ == "__main__":
     logger.info("=" * 60)
-    logger.info("🚀 Starting JobYaari AI Chatbot (Production)")
+    logger.info("🚀 Starting JobYaari AI Chatbot (REAL-TIME DATA ONLY)")
     logger.info("=" * 60)
     
-    # Load knowledge base
+    # Load knowledge base (only real data)
     load_knowledge_base()
+    
+    total = sum(len(v) for v in KNOWLEDGE_BASE.values())
+    
+    if total == 0:
+        logger.warning("=" * 60)
+        logger.warning("⚠️  NO DATA LOADED!")
+        logger.warning("Please run one of these:")
+        logger.warning("1. python scraper.py (to scrape data)")
+        logger.warning("2. Use /api/refresh endpoint")
+        logger.warning("3. Use /api/inspect to diagnose scraper issues")
+        logger.warning("=" * 60)
     
     # Get port
     port = int(os.environ.get("PORT", 5000))
     
     logger.info(f"✓ Server starting on port {port}")
-    logger.info(f"✓ Knowledge base: {sum(len(v) for v in KNOWLEDGE_BASE.values())} jobs")
+    logger.info(f"✓ Knowledge base: {total} REAL jobs loaded")
     logger.info(f"✓ AI Model: {MODEL_NAME}")
+    logger.info(f"✓ Inspector endpoint: /api/inspect")
     logger.info("=" * 60)
     
     app.run(
