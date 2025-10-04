@@ -2,11 +2,18 @@ services:
   - type: web
     name: jobyaari-chatbot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    region: singapore
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn --workers 2 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: OPENROUTER_API_KEY
         sync: false
-    healthCheckPath: /health
+      - key: FLASK_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+    autoDeploy: true
