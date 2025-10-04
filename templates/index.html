@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JobYaari AI Chatbot - Assignment 2</title>
+    <title>JobYaari AI Chatbot - Government Jobs</title>
     <style>
         * {
             margin: 0;
@@ -94,6 +94,12 @@
             font-size: 12px;
             border-top: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
+            transition: all 0.3s;
+        }
+
+        .stats-bar.empty {
+            background: rgba(255, 87, 87, 0.2);
+            border-top: 2px solid rgba(255, 87, 87, 0.5);
         }
 
         .stat-item {
@@ -105,6 +111,16 @@
         .stat-number {
             font-size: 18px;
             font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .stat-number.zero {
+            color: #ffcccc;
+            opacity: 0.7;
+        }
+
+        .stat-number.error {
+            color: #ff6b6b;
         }
 
         .stat-label {
@@ -315,6 +331,20 @@
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
+        .alert-banner {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 12px 20px;
+            text-align: center;
+            font-size: 13px;
+            display: none;
+        }
+
+        .alert-banner.show {
+            display: block;
+        }
+
         @media (max-width: 768px) {
             .container {
                 height: 100vh;
@@ -372,7 +402,7 @@
             </div>
 
             <div class="header-buttons">
-                <button class="btn" onclick="refreshData()">
+                <button class="btn" id="refreshBtn" onclick="refreshData()">
                     <span>🔄</span> Refresh Live Data
                 </button>
                 <button class="btn" onclick="showStats()">
@@ -383,6 +413,8 @@
                 </button>
             </div>
         </div>
+
+        <div class="alert-banner" id="alertBanner"></div>
 
         <div class="stats-bar" id="statsBar">
             <div class="stat-item">
@@ -452,10 +484,49 @@
         const chatContainer = document.getElementById('chatContainer');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const alertBanner = document.getElementById('alertBanner');
+
+        // Helper: Fetch with timeout
+        async function fetchWithTimeout(url, options = {}, timeout = 30000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timed out after 30 seconds');
+                }
+                throw error;
+            }
+        }
+
+        // Show alert banner
+        function showAlert(message, type = 'warning') {
+            alertBanner.textContent = message;
+            alertBanner.className = 'alert-banner show';
+            if (type === 'error') {
+                alertBanner.style.background = '#f8d7da';
+                alertBanner.style.color = '#721c24';
+                alertBanner.style.borderColor = '#f5c6cb';
+            }
+        }
+
+        function hideAlert() {
+            alertBanner.classList.remove('show');
+        }
 
         // Load stats on page load
         window.onload = function() {
             loadStats();
+            checkDataAvailability();
             userInput.focus();
         };
 
@@ -463,192 +534,4 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + (isUser ? 'user' : 'bot');
             
-            if (!isUser) {
-                const avatar = document.createElement('div');
-                avatar.className = 'bot-avatar';
-                avatar.textContent = 'JY';
-                messageDiv.appendChild(avatar);
-            }
-
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            
-            // Format content
-            content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            content = content.replace(/\n/g, '<br>');
-            
-            // Convert URLs to links
-            content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-            
-            contentDiv.innerHTML = content;
-            
-            messageDiv.appendChild(contentDiv);
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-
-        function showTypingIndicator() {
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message bot';
-            typingDiv.id = 'typingIndicator';
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'bot-avatar';
-            avatar.textContent = 'JY';
-            typingDiv.appendChild(avatar);
-            
-            const indicator = document.createElement('div');
-            indicator.className = 'typing-indicator';
-            indicator.style.display = 'block';
-            indicator.innerHTML = '<span></span><span></span><span></span>';
-            typingDiv.appendChild(indicator);
-            
-            chatContainer.appendChild(typingDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-
-        function removeTypingIndicator() {
-            const indicator = document.getElementById('typingIndicator');
-            if (indicator) {
-                indicator.remove();
-            }
-        }
-
-        async function sendMessage() {
-            const message = userInput.value.trim();
-            if (!message) return;
-
-            addMessage(message, true);
-            userInput.value = '';
-            sendBtn.disabled = true;
-            showTypingIndicator();
-
-            try {
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message })
-                });
-
-                const data = await response.json();
-                removeTypingIndicator();
-                
-                if (response.ok) {
-                    addMessage(data.response);
-                } else {
-                    addMessage('❌ Sorry, I encountered an error. Please try again or refresh the data.');
-                }
-            } catch (error) {
-                removeTypingIndicator();
-                addMessage('❌ Connection error. Please check your internet and try again.');
-            } finally {
-                sendBtn.disabled = false;
-                userInput.focus();
-            }
-        }
-
-        function handleKeyPress(event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-            }
-        }
-
-        function sendSuggestion(text) {
-            userInput.value = text;
-            sendMessage();
-        }
-
-        async function refreshData() {
-            const allBtns = document.querySelectorAll('.btn');
-            allBtns.forEach(function(btn) {
-                btn.disabled = true;
-            });
-            
-            addMessage('🔄 Refreshing job data from JobYaari.com... This may take a minute.', false);
-
-            try {
-                const response = await fetch('/api/refresh', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                const data = await response.json();
-                
-                if (response.ok && data.success) {
-                    addMessage('✅ Successfully refreshed! Found **' + data.total_jobs + '** jobs:\n' +
-                              '• Engineering: ' + data.categories.Engineering + '\n' +
-                              '• Science: ' + data.categories.Science + '\n' +
-                              '• Commerce: ' + data.categories.Commerce + '\n' +
-                              '• Education: ' + data.categories.Education);
-                    loadStats();
-                } else {
-                    addMessage('⚠️ Refresh completed with limited data. Using cached information.');
-                    loadStats();
-                }
-            } catch (error) {
-                addMessage('❌ Failed to refresh. Please try again later.');
-            } finally {
-                allBtns.forEach(function(btn) {
-                    btn.disabled = false;
-                });
-            }
-        }
-
-        async function loadStats() {
-            try {
-                const response = await fetch('/api/stats');
-                const data = await response.json();
-                
-                document.getElementById('totalJobs').textContent = data.total_jobs || 0;
-                document.getElementById('engineeringJobs').textContent = (data.by_category && data.by_category.Engineering) ? data.by_category.Engineering.count : 0;
-                document.getElementById('scienceJobs').textContent = (data.by_category && data.by_category.Science) ? data.by_category.Science.count : 0;
-                document.getElementById('commerceJobs').textContent = (data.by_category && data.by_category.Commerce) ? data.by_category.Commerce.count : 0;
-                document.getElementById('educationJobs').textContent = (data.by_category && data.by_category.Education) ? data.by_category.Education.count : 0;
-            } catch (error) {
-                console.error('Failed to load stats:', error);
-            }
-        }
-
-        async function showStats() {
-            try {
-                const response = await fetch('/api/stats');
-                const data = await response.json();
-                
-                let statsMessage = '📊 **Current Job Database Statistics**\n\n';
-                statsMessage += '**Total Jobs:** ' + data.total_jobs + '\n\n';
-                
-                if (data.by_category) {
-                    for (const category in data.by_category) {
-                        const info = data.by_category[category];
-                        statsMessage += '**' + category + ':** ' + info.count + ' jobs\n';
-                        if (info.jobs && info.jobs.length > 0) {
-                            statsMessage += 'Sample: ' + info.jobs[0] + '\n';
-                        }
-                        statsMessage += '\n';
-                    }
-                }
-                
-                if (data.last_updated) {
-                    const date = new Date(data.last_updated);
-                    statsMessage += '\n⏱️ Last updated: ' + date.toLocaleString();
-                }
-                
-                addMessage(statsMessage);
-            } catch (error) {
-                addMessage('❌ Failed to load statistics.');
-            }
-        }
-
-        function clearChat() {
-            const messages = chatContainer.querySelectorAll('.message');
-            messages.forEach(function(msg, index) {
-                if (index > 0) {
-                    msg.remove();
-                }
-            });
-            addMessage('🗑️ Chat cleared! How can I assist you?');
-        }
-    </script>
-</body>
-</html>
+            if (!
