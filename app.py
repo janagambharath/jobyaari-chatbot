@@ -6,7 +6,7 @@ from datetime import datetime
 import re
 import requests
 
-# Import the new, production-grade scraper
+# Import the production-grade scraper
 from scraper import JobYaariScraper
 
 app = Flask(__name__)
@@ -59,7 +59,7 @@ def refresh_and_scrape_data():
         return False
 
 def query_ai_model(user_message, context):
-    """Queries the AI model with the current knowledge base as context."""
+    """Queries the AI model using DeepSeek R1."""
     if not OPENROUTER_API_KEY:
         return "AI model is not configured. Please set the OPENROUTER_API_KEY."
 
@@ -69,5 +69,52 @@ def query_ai_model(user_message, context):
 Answer the user's question based *only* on the real-time job data provided below in the knowledge base. Do not invent information.
 
 **Knowledge Base (Live Scraped Data):**
-```json
 {json.dumps(context, indent=2)}
+"""
+
+    payload = {
+        "model": "deepseek/deepseek-r1:free",  # Using DeepSeek R1 free model
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    }
+
+    try:
+        response = requests.post(
+            OPENROUTER_URL,
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result['choices'][0]['message']['content'] if 'choices' in result else str(result)
+    except Exception as e:
+        return f"❌ Error querying AI model: {e}"
+
+# --- Flask Routes ---
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    data = request.json
+    user_message = data.get('message', '')
+    if not user_message:
+        return jsonify({"error": "Message is empty"}), 400
+
+    answer = query_ai_model(user_message, KNOWLEDGE_BASE)
+    return jsonify({"answer": answer})
+
+@app.route('/refresh', methods=['POST'])
+def refresh():
+    success = refresh_and_scrape_data()
+    return jsonify({"success": success, "total_jobs": sum(len(j) for j in KNOWLEDGE_BASE.values())})
+
+# --- App Initialization ---
+if __name__ == '__main__':
+    load_knowledge_base()
+    app.run(debug=True, host='0.0.0.0', port=5000)
