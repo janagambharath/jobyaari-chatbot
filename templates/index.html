@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JobYaari AI Chatbot</title>
+    <title>JobYaari AI Chatbot - Assignment 2</title>
     <style>
         * {
             margin: 0;
@@ -23,7 +23,7 @@
 
         .container {
             width: 100%;
-            max-width: 900px;
+            max-width: 1000px;
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
@@ -31,42 +31,101 @@
             display: flex;
             flex-direction: column;
             height: 90vh;
-            max-height: 700px;
+            max-height: 750px;
         }
 
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 20px;
+            padding: 25px;
             text-align: center;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
 
         .header h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
+            font-size: 28px;
+            margin-bottom: 8px;
+            font-weight: 600;
         }
 
         .header p {
             font-size: 14px;
-            opacity: 0.9;
+            opacity: 0.95;
+            margin-bottom: 15px;
         }
 
-        .refresh-btn {
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
             background: rgba(255, 255, 255, 0.2);
             border: 1px solid rgba(255, 255, 255, 0.3);
             color: white;
             padding: 8px 16px;
             border-radius: 20px;
             cursor: pointer;
-            font-size: 14px;
-            margin-top: 10px;
+            font-size: 13px;
             transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
 
-        .refresh-btn:hover {
+        .btn:hover:not(:disabled) {
             background: rgba(255, 255, 255, 0.3);
             transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .stats-bar {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-around;
+            font-size: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-number {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .category-badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            justify-content: center;
+        }
+
+        .category-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .chat-container {
@@ -74,6 +133,19 @@
             overflow-y: auto;
             padding: 20px;
             background: #f8f9fa;
+        }
+
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
         }
 
         .message {
@@ -102,11 +174,11 @@
         }
 
         .message-content {
-            max-width: 70%;
-            padding: 12px 16px;
+            max-width: 75%;
+            padding: 14px 18px;
             border-radius: 18px;
             word-wrap: break-word;
-            line-height: 1.5;
+            line-height: 1.6;
         }
 
         .message.user .message-content {
@@ -119,12 +191,12 @@
             background: white;
             color: #333;
             border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         .bot-avatar {
-            width: 36px;
-            height: 36px;
+            width: 40px;
+            height: 40px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 50%;
             display: flex;
@@ -132,8 +204,9 @@
             justify-content: center;
             color: white;
             font-weight: bold;
-            margin-right: 10px;
+            margin-right: 12px;
             flex-shrink: 0;
+            font-size: 14px;
         }
 
         .input-container {
@@ -146,7 +219,7 @@
 
         #userInput {
             flex: 1;
-            padding: 12px 16px;
+            padding: 14px 18px;
             border: 2px solid #e0e0e0;
             border-radius: 25px;
             font-size: 14px;
@@ -162,7 +235,7 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 12px 30px;
+            padding: 14px 35px;
             border-radius: 25px;
             cursor: pointer;
             font-size: 14px;
@@ -170,7 +243,7 @@
             transition: all 0.3s;
         }
 
-        #sendBtn:hover {
+        #sendBtn:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
@@ -178,15 +251,14 @@
         #sendBtn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
-            transform: none;
         }
 
         .typing-indicator {
             display: none;
-            padding: 12px 16px;
+            padding: 14px 18px;
             background: white;
             border-radius: 18px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         .typing-indicator span {
@@ -219,32 +291,28 @@
         }
 
         .suggestions {
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 10px;
-            padding: 10px 0;
+            margin-top: 15px;
         }
 
         .suggestion-chip {
-            background: #f0f0f0;
-            padding: 8px 14px;
-            border-radius: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 12px 16px;
+            border-radius: 12px;
             font-size: 13px;
             cursor: pointer;
             transition: all 0.3s;
             border: 1px solid #e0e0e0;
+            text-align: center;
         }
 
         .suggestion-chip:hover {
-            background: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             transform: translateY(-2px);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
         @media (max-width: 768px) {
@@ -257,31 +325,113 @@
             .message-content {
                 max-width: 85%;
             }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .stats-bar {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .stat-item {
+                min-width: 80px;
+            }
+
+            .suggestions {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        strong {
+            color: #667eea;
+        }
+
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎓 JobYaari AI Assistant</h1>
-            <p>Ask me about job notifications in Engineering, Science, Commerce & Education</p>
-            <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Job Data</button>
+            <h1>🎓 JobYaari AI Chatbot</h1>
+            <p>AI-Powered Assistant for Indian Government Job Notifications</p>
+            
+            <div class="category-badges">
+                <span class="category-badge">🔧 Engineering</span>
+                <span class="category-badge">🔬 Science</span>
+                <span class="category-badge">💼 Commerce</span>
+                <span class="category-badge">📚 Education</span>
+            </div>
+
+            <div class="header-buttons">
+                <button class="btn" onclick="refreshData()">
+                    <span>🔄</span> Refresh Live Data
+                </button>
+                <button class="btn" onclick="showStats()">
+                    <span>📊</span> View Stats
+                </button>
+                <button class="btn" onclick="clearChat()">
+                    <span>🗑️</span> Clear Chat
+                </button>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-item">
+                <div class="stat-number" id="totalJobs">-</div>
+                <div class="stat-label">Total Jobs</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="engineeringJobs">-</div>
+                <div class="stat-label">Engineering</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="scienceJobs">-</div>
+                <div class="stat-label">Science</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="commerceJobs">-</div>
+                <div class="stat-label">Commerce</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="educationJobs">-</div>
+                <div class="stat-label">Education</div>
+            </div>
         </div>
 
         <div class="chat-container" id="chatContainer">
             <div class="message bot">
                 <div class="bot-avatar">JY</div>
                 <div class="message-content">
-                    <p>👋 Hello! I'm your JobYaari assistant. I can help you find job notifications across different categories:</p>
+                    <p><strong>👋 Welcome to JobYaari AI Assistant!</strong></p>
                     <br>
-                    <p>📚 <strong>Engineering</strong> | 🔬 <strong>Science</strong> | 💼 <strong>Commerce</strong> | 🎓 <strong>Education</strong></p>
+                    <p>I'm an AI-powered chatbot designed to help you find Indian government job notifications across four major categories:</p>
                     <br>
-                    <p>Try asking questions like:</p>
+                    <p>🔧 <strong>Engineering</strong> - Technical positions, PSUs, GATE-based jobs<br>
+                    🔬 <strong>Science</strong> - Research, CSIR, Laboratory positions<br>
+                    💼 <strong>Commerce</strong> - Banking, SSC, IBPS, Finance jobs<br>
+                    📚 <strong>Education</strong> - Teaching positions, KVS, NVS, University jobs</p>
+                    <br>
+                    <p><strong>I can help you with:</strong></p>
+                    <p>✅ Latest job notifications<br>
+                    ✅ Filter by experience and qualification<br>
+                    ✅ Detailed job information (vacancies, salary, age, etc.)<br>
+                    ✅ Direct application links</p>
+                    <br>
+                    <p><strong>Try these quick searches:</strong></p>
                     <div class="suggestions">
-                        <div class="suggestion-chip" onclick="sendSuggestion('What are the latest Engineering jobs?')">Latest Engineering jobs</div>
-                        <div class="suggestion-chip" onclick="sendSuggestion('Show me Science jobs with 1 year experience')">Science jobs with experience</div>
-                        <div class="suggestion-chip" onclick="sendSuggestion('Commerce job notifications')">Commerce jobs</div>
-                        <div class="suggestion-chip" onclick="sendSuggestion('Education qualification requirements')">Education jobs</div>
+                        <div class="suggestion-chip" onclick="sendSuggestion('Show latest Engineering jobs')">Latest Engineering Jobs</div>
+                        <div class="suggestion-chip" onclick="sendSuggestion('Science jobs with 1 year experience')">Science Jobs (1yr exp)</div>
+                        <div class="suggestion-chip" onclick="sendSuggestion('Commerce jobs for graduates')">Commerce Graduate Jobs</div>
+                        <div class="suggestion-chip" onclick="sendSuggestion('Education teaching positions')">Education Teaching Jobs</div>
                     </div>
                 </div>
             </div>
@@ -291,7 +441,7 @@
             <input 
                 type="text" 
                 id="userInput" 
-                placeholder="Ask about job notifications..." 
+                placeholder="Ask about job notifications... (e.g., 'Engineering jobs with 2 years experience')" 
                 onkeypress="handleKeyPress(event)"
             />
             <button id="sendBtn" onclick="sendMessage()">Send</button>
@@ -303,9 +453,15 @@
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
 
+        // Load stats on page load
+        window.onload = function() {
+            loadStats();
+            userInput.focus();
+        };
+
         function addMessage(content, isUser = false) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+            messageDiv.className = 'message ' + (isUser ? 'user' : 'bot');
             
             if (!isUser) {
                 const avatar = document.createElement('div');
@@ -317,9 +473,13 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             
-            // Format content with line breaks and bold
+            // Format content
             content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             content = content.replace(/\n/g, '<br>');
+            
+            // Convert URLs to links
+            content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+            
             contentDiv.innerHTML = content;
             
             messageDiv.appendChild(contentDiv);
@@ -358,35 +518,29 @@
             const message = userInput.value.trim();
             if (!message) return;
 
-            // Add user message
             addMessage(message, true);
             userInput.value = '';
             sendBtn.disabled = true;
-
-            // Show typing indicator
             showTypingIndicator();
 
             try {
                 const response = await fetch('/api/chat', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: message })
                 });
 
                 const data = await response.json();
-                
                 removeTypingIndicator();
                 
                 if (response.ok) {
                     addMessage(data.response);
                 } else {
-                    addMessage('Sorry, I encountered an error. Please try again.');
+                    addMessage('❌ Sorry, I encountered an error. Please try again or refresh the data.');
                 }
             } catch (error) {
                 removeTypingIndicator();
-                addMessage('Sorry, I\'m having trouble connecting. Please check your connection and try again.');
+                addMessage('❌ Connection error. Please check your internet and try again.');
             } finally {
                 sendBtn.disabled = false;
                 userInput.focus();
@@ -394,7 +548,8 @@
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
             }
         }
@@ -405,38 +560,95 @@
         }
 
         async function refreshData() {
-            const refreshBtn = document.querySelector('.refresh-btn');
-            const originalText = refreshBtn.textContent;
-            refreshBtn.textContent = '⏳ Refreshing...';
-            refreshBtn.disabled = true;
+            const allBtns = document.querySelectorAll('.btn');
+            allBtns.forEach(function(btn) {
+                btn.disabled = true;
+            });
+            
+            addMessage('🔄 Refreshing job data from JobYaari.com... This may take a minute.', false);
 
             try {
                 const response = await fetch('/api/refresh', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 });
 
                 const data = await response.json();
                 
-                if (response.ok) {
-                    addMessage(`✅ Job data refreshed successfully! Found ${data.total_jobs} jobs across ${Object.keys(data.categories).length} categories.`);
+                if (response.ok && data.success) {
+                    addMessage('✅ Successfully refreshed! Found **' + data.total_jobs + '** jobs:\n' +
+                              '• Engineering: ' + data.categories.Engineering + '\n' +
+                              '• Science: ' + data.categories.Science + '\n' +
+                              '• Commerce: ' + data.categories.Commerce + '\n' +
+                              '• Education: ' + data.categories.Education);
+                    loadStats();
                 } else {
-                    addMessage('❌ Failed to refresh data. Please try again later.');
+                    addMessage('⚠️ Refresh completed with limited data. Using cached information.');
+                    loadStats();
                 }
             } catch (error) {
-                addMessage('❌ Error refreshing data. Please check your connection.');
+                addMessage('❌ Failed to refresh. Please try again later.');
             } finally {
-                refreshBtn.textContent = originalText;
-                refreshBtn.disabled = false;
+                allBtns.forEach(function(btn) {
+                    btn.disabled = false;
+                });
             }
         }
 
-        // Focus input on load
-        window.onload = () => {
-            userInput.focus();
-        };
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                document.getElementById('totalJobs').textContent = data.total_jobs || 0;
+                document.getElementById('engineeringJobs').textContent = (data.by_category && data.by_category.Engineering) ? data.by_category.Engineering.count : 0;
+                document.getElementById('scienceJobs').textContent = (data.by_category && data.by_category.Science) ? data.by_category.Science.count : 0;
+                document.getElementById('commerceJobs').textContent = (data.by_category && data.by_category.Commerce) ? data.by_category.Commerce.count : 0;
+                document.getElementById('educationJobs').textContent = (data.by_category && data.by_category.Education) ? data.by_category.Education.count : 0;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function showStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                let statsMessage = '📊 **Current Job Database Statistics**\n\n';
+                statsMessage += '**Total Jobs:** ' + data.total_jobs + '\n\n';
+                
+                if (data.by_category) {
+                    for (const category in data.by_category) {
+                        const info = data.by_category[category];
+                        statsMessage += '**' + category + ':** ' + info.count + ' jobs\n';
+                        if (info.jobs && info.jobs.length > 0) {
+                            statsMessage += 'Sample: ' + info.jobs[0] + '\n';
+                        }
+                        statsMessage += '\n';
+                    }
+                }
+                
+                if (data.last_updated) {
+                    const date = new Date(data.last_updated);
+                    statsMessage += '\n⏱️ Last updated: ' + date.toLocaleString();
+                }
+                
+                addMessage(statsMessage);
+            } catch (error) {
+                addMessage('❌ Failed to load statistics.');
+            }
+        }
+
+        function clearChat() {
+            const messages = chatContainer.querySelectorAll('.message');
+            messages.forEach(function(msg, index) {
+                if (index > 0) {
+                    msg.remove();
+                }
+            });
+            addMessage('🗑️ Chat cleared! How can I assist you?');
+        }
     </script>
 </body>
 </html>
