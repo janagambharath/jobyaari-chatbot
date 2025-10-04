@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JobYaari AI Chatbot - Government Jobs</title>
+    <title>JobYaari AI Chatbot - Assignment 2</title>
     <style>
         * {
             margin: 0;
@@ -94,12 +94,6 @@
             font-size: 12px;
             border-top: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
-            transition: all 0.3s;
-        }
-
-        .stats-bar.empty {
-            background: rgba(255, 87, 87, 0.2);
-            border-top: 2px solid rgba(255, 87, 87, 0.5);
         }
 
         .stat-item {
@@ -111,7 +105,11 @@
         .stat-number {
             font-size: 18px;
             font-weight: bold;
-            transition: all 0.3s;
+        }
+
+        .stat-label {
+            opacity: 0.9;
+            margin-top: 2px;
         }
 
         .category-badges {
@@ -141,6 +139,10 @@
             width: 8px;
         }
 
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
         .chat-container::-webkit-scrollbar-thumb {
             background: #888;
             border-radius: 4px;
@@ -153,12 +155,23 @@
         }
 
         @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
-        .message.user { justify-content: flex-end; }
-        .message.bot { justify-content: flex-start; }
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message.bot {
+            justify-content: flex-start;
+        }
 
         .message-content {
             max-width: 75%;
@@ -178,7 +191,7 @@
             background: white;
             color: #333;
             border-bottom-left-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         .bot-avatar {
@@ -232,7 +245,7 @@
 
         #sendBtn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102,126,234,0.4);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
 
         #sendBtn:disabled {
@@ -240,18 +253,41 @@
             cursor: not-allowed;
         }
 
-        .alert-banner {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            color: #856404;
-            padding: 12px 20px;
-            text-align: center;
-            font-size: 13px;
+        .typing-indicator {
             display: none;
+            padding: 14px 18px;
+            background: white;
+            border-radius: 18px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
-        .alert-banner.show {
-            display: block;
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
         }
 
         .suggestions {
@@ -276,17 +312,50 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102,126,234,0.3);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
         }
 
         @media (max-width: 768px) {
-            .container { height: 100vh; max-height: none; border-radius: 0; }
-            .message-content { max-width: 85%; }
+            .container {
+                height: 100vh;
+                max-height: none;
+                border-radius: 0;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .stats-bar {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .stat-item {
+                min-width: 80px;
+            }
+
+            .suggestions {
+                grid-template-columns: 1fr;
+            }
         }
 
-        strong { color: #667eea; }
-        a { color: #667eea; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        strong {
+            color: #667eea;
+        }
+
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -303,7 +372,7 @@
             </div>
 
             <div class="header-buttons">
-                <button class="btn" id="refreshBtn" onclick="refreshData()">
+                <button class="btn" onclick="refreshData()">
                     <span>🔄</span> Refresh Live Data
                 </button>
                 <button class="btn" onclick="showStats()">
@@ -314,8 +383,6 @@
                 </button>
             </div>
         </div>
-
-        <div class="alert-banner" id="alertBanner"></div>
 
         <div class="stats-bar" id="statsBar">
             <div class="stat-item">
@@ -345,7 +412,19 @@
                 <div class="bot-avatar">JY</div>
                 <div class="message-content">
                     <p><strong>👋 Welcome to JobYaari AI Assistant!</strong></p>
-                    <p>I’m an AI-powered chatbot designed to help you find Indian government job notifications across categories.</p>
+                    <br>
+                    <p>I'm an AI-powered chatbot designed to help you find Indian government job notifications across four major categories:</p>
+                    <br>
+                    <p>🔧 <strong>Engineering</strong> - Technical positions, PSUs, GATE-based jobs<br>
+                    🔬 <strong>Science</strong> - Research, CSIR, Laboratory positions<br>
+                    💼 <strong>Commerce</strong> - Banking, SSC, IBPS, Finance jobs<br>
+                    📚 <strong>Education</strong> - Teaching positions, KVS, NVS, University jobs</p>
+                    <br>
+                    <p><strong>I can help you with:</strong></p>
+                    <p>✅ Latest job notifications<br>
+                    ✅ Filter by experience and qualification<br>
+                    ✅ Detailed job information (vacancies, salary, age, etc.)<br>
+                    ✅ Direct application links</p>
                     <br>
                     <p><strong>Try these quick searches:</strong></p>
                     <div class="suggestions">
@@ -362,7 +441,7 @@
             <input 
                 type="text" 
                 id="userInput" 
-                placeholder="Ask about job notifications..." 
+                placeholder="Ask about job notifications... (e.g., 'Engineering jobs with 2 years experience')" 
                 onkeypress="handleKeyPress(event)"
             />
             <button id="sendBtn" onclick="sendMessage()">Send</button>
@@ -372,22 +451,18 @@
     <script>
         const chatContainer = document.getElementById('chatContainer');
         const userInput = document.getElementById('userInput');
-        const alertBanner = document.getElementById('alertBanner');
+        const sendBtn = document.getElementById('sendBtn');
 
-        // Show/hide alert
-        function showAlert(msg) {
-            alertBanner.textContent = msg;
-            alertBanner.classList.add('show');
-        }
-        function hideAlert() {
-            alertBanner.classList.remove('show');
-        }
+        // Load stats on page load
+        window.onload = function() {
+            loadStats();
+            userInput.focus();
+        };
 
-        // Add message
         function addMessage(content, isUser = false) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + (isUser ? 'user' : 'bot');
-
+            
             if (!isUser) {
                 const avatar = document.createElement('div');
                 avatar.className = 'bot-avatar';
@@ -395,30 +470,88 @@
                 messageDiv.appendChild(avatar);
             }
 
-            const messageContent = document.createElement('div');
-            messageContent.className = 'message-content';
-            messageContent.innerHTML = content;
-            messageDiv.appendChild(messageContent);
-
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // Format content
+            content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            content = content.replace(/\n/g, '<br>');
+            
+            // Convert URLs to links
+            content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+            
+            contentDiv.innerHTML = content;
+            
+            messageDiv.appendChild(contentDiv);
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // Send message
-        function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text) return;
-            addMessage(text, true);
-            userInput.value = '';
-
-            // Simple bot reply
-            setTimeout(() => {
-                addMessage("🔍 Searching for: <strong>" + text + "</strong><br>Please wait...");
-            }, 500);
+        function showTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message bot';
+            typingDiv.id = 'typingIndicator';
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'bot-avatar';
+            avatar.textContent = 'JY';
+            typingDiv.appendChild(avatar);
+            
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.style.display = 'block';
+            indicator.innerHTML = '<span></span><span></span><span></span>';
+            typingDiv.appendChild(indicator);
+            
+            chatContainer.appendChild(typingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function handleKeyPress(e) {
-            if (e.key === 'Enter') sendMessage();
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, true);
+            userInput.value = '';
+            sendBtn.disabled = true;
+            showTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json();
+                removeTypingIndicator();
+                
+                if (response.ok) {
+                    addMessage(data.response);
+                } else {
+                    addMessage('❌ Sorry, I encountered an error. Please try again or refresh the data.');
+                }
+            } catch (error) {
+                removeTypingIndicator();
+                addMessage('❌ Connection error. Please check your internet and try again.');
+            } finally {
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
         }
 
         function sendSuggestion(text) {
@@ -426,38 +559,96 @@
             sendMessage();
         }
 
+        async function refreshData() {
+            const allBtns = document.querySelectorAll('.btn');
+            allBtns.forEach(function(btn) {
+                btn.disabled = true;
+            });
+            
+            addMessage('🔄 Refreshing job data from JobYaari.com... This may take a minute.', false);
+
+            try {
+                const response = await fetch('/api/refresh', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    addMessage('✅ Successfully refreshed! Found **' + data.total_jobs + '** jobs:\n' +
+                              '• Engineering: ' + data.categories.Engineering + '\n' +
+                              '• Science: ' + data.categories.Science + '\n' +
+                              '• Commerce: ' + data.categories.Commerce + '\n' +
+                              '• Education: ' + data.categories.Education);
+                    loadStats();
+                } else {
+                    addMessage('⚠️ Refresh completed with limited data. Using cached information.');
+                    loadStats();
+                }
+            } catch (error) {
+                addMessage('❌ Failed to refresh. Please try again later.');
+            } finally {
+                allBtns.forEach(function(btn) {
+                    btn.disabled = false;
+                });
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                document.getElementById('totalJobs').textContent = data.total_jobs || 0;
+                document.getElementById('engineeringJobs').textContent = (data.by_category && data.by_category.Engineering) ? data.by_category.Engineering.count : 0;
+                document.getElementById('scienceJobs').textContent = (data.by_category && data.by_category.Science) ? data.by_category.Science.count : 0;
+                document.getElementById('commerceJobs').textContent = (data.by_category && data.by_category.Commerce) ? data.by_category.Commerce.count : 0;
+                document.getElementById('educationJobs').textContent = (data.by_category && data.by_category.Education) ? data.by_category.Education.count : 0;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function showStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                let statsMessage = '📊 **Current Job Database Statistics**\n\n';
+                statsMessage += '**Total Jobs:** ' + data.total_jobs + '\n\n';
+                
+                if (data.by_category) {
+                    for (const category in data.by_category) {
+                        const info = data.by_category[category];
+                        statsMessage += '**' + category + ':** ' + info.count + ' jobs\n';
+                        if (info.jobs && info.jobs.length > 0) {
+                            statsMessage += 'Sample: ' + info.jobs[0] + '\n';
+                        }
+                        statsMessage += '\n';
+                    }
+                }
+                
+                if (data.last_updated) {
+                    const date = new Date(data.last_updated);
+                    statsMessage += '\n⏱️ Last updated: ' + date.toLocaleString();
+                }
+                
+                addMessage(statsMessage);
+            } catch (error) {
+                addMessage('❌ Failed to load statistics.');
+            }
+        }
+
         function clearChat() {
-            chatContainer.innerHTML = '';
-            addMessage('<strong>Chat cleared.</strong> Start a new conversation.');
+            const messages = chatContainer.querySelectorAll('.message');
+            messages.forEach(function(msg, index) {
+                if (index > 0) {
+                    msg.remove();
+                }
+            });
+            addMessage('🗑️ Chat cleared! How can I assist you?');
         }
-
-        function refreshData() {
-            showAlert('🔄 Fetching latest job data...');
-            setTimeout(() => {
-                hideAlert();
-                addMessage('✅ Job data refreshed successfully!');
-            }, 1500);
-        }
-
-        function showStats() {
-            addMessage(`
-                📊 <strong>Current Job Stats:</strong><br>
-                🔧 Engineering: 122<br>
-                🔬 Science: 54<br>
-                💼 Commerce: 89<br>
-                📚 Education: 67
-            `);
-        }
-
-        function loadStats() {
-            document.getElementById('totalJobs').textContent = 332;
-            document.getElementById('engineeringJobs').textContent = 122;
-            document.getElementById('scienceJobs').textContent = 54;
-            document.getElementById('commerceJobs').textContent = 89;
-            document.getElementById('educationJobs').textContent = 67;
-        }
-
-        window.onload = () => loadStats();
     </script>
 </body>
 </html>
