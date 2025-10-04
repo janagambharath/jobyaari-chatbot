@@ -5,12 +5,10 @@ Robust scraper for JobYaari -> fills knowledge_base.json
 
 Features:
 - Multi-strategy selector detection
-- Session with retries + backoff
-- Rate limiting + small random delays
-- Deduplication and normalization
-- Extracts title, organization, url, snippet, vacancies, salary, age, experience, qualification, posted
-- Saves to knowledge_base.json
-- Defensive: warns if page appears JS-rendered
+- Qualification normalization -> Graduate/Postgraduate/Doctorate/Other
+- Categorization (Engineering/Science/Commerce/Education or Uncategorized)
+- Optional Selenium fallback controlled by USE_SELENIUM env var
+- Deduplication, rate-limiting, atomic save
 """
 
 import os
@@ -28,22 +26,32 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Optional selenium
+USE_SELENIUM = os.environ.get("USE_SELENIUM", "0") == "1"
+if USE_SELENIUM:
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+    except Exception:
+        USE_SELENIUM = False
+
 # ---------- Configuration ----------
-BASE_URL = "https://www.jobyaari.com"
-PRIMARY_LISTING_PATH = "/latest-jobs"  # primary page to try
-OUTPUT_FILE = "knowledge_base.json"
-MAX_PER_CATEGORY = 7
+BASE_URL = os.environ.get("JOBYAARI_BASE_URL", "https://www.jobyaari.com")
+PRIMARY_LISTING_PATH = os.environ.get("JOBYAARI_LISTING_PATH", "/latest-jobs")
+OUTPUT_FILE = os.environ.get("KNOWLEDGE_BASE_FILE", "knowledge_base.json")
+MAX_PER_CATEGORY = int(os.environ.get("MAX_PER_CATEGORY", "7"))
 REQUEST_TIMEOUT = 20
 MAX_RETRIES = 3
-DELAY_BETWEEN_REQUESTS = (1.0, 3.0)  # random sleep range (seconds)
-CATEGORIES = ["Engineering", "Science", "Commerce", "Education"]
+DELAY_BETWEEN_REQUESTS = (0.8, 2.0)
+CATEGORIES = ["Engineering", "Science", "Commerce", "Education", "Uncategorized"]
 
 # ---------- Logging ----------
 logger = logging.getLogger("JobYaariScraper")
 logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-logger.addHandler(ch)
+if not logger.handlers:
+    logger.addHandler(ch)
 
 # ---------- HTTP Session ----------
 session = requests.Session()
@@ -53,19 +61,18 @@ session.headers.update({
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9"
 })
-
 retry_strategy = Retry(
     total=MAX_RETRIES,
     backoff_factor=1.0,
     status_forcelist=[429, 500, 502, 503, 504],
-    allowed_methods=["GET", "POST"]
+    allowed_methods=["GET"]
 )
 adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=20)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
 
 
-# ---------- Utility extractors (regex-based) ----------
+# ---------- Extractors ----------
 def extract_vacancies(text: str) -> Optional[str]:
     if not text:
         return None
@@ -137,16 +144,28 @@ def extract_qualification(text: str) -> Optional[str]:
             return name
     return None
 
+def normalize_qualification_to_level(qualification: Optional[str]) -> str:
+    if not qualification:
+        return "Not specified"
+    q = qualification.lower()
+    if re.search(r'\b(ph\.?d|phd|doctor)\b', q):
+        return "Doctorate"
+    if re.search(r'\b(m\.?tech|m\.?sc|mba|master|mtech|msc)\b', q):
+        return "Postgraduate"
+    if re.search(r'\b(b\.?tech|b\.?sc|b\.?ed|graduate|bachelor|ba|bcom)\b', q):
+        return "Graduate"
+    if re.search(r'\b(diploma|certificate)\b', q):
+        return "Diploma/Certificate"
+    return "Other"
+
 def extract_posted_date(text: str) -> Optional[str]:
     if not text:
         return None
-    # relative days
     m = re.search(r'(\d+)\s*days?\s*ago', text, re.I)
     if m:
         days = int(m.group(1))
         d = datetime.utcnow() - timedelta(days=days)
         return d.date().isoformat()
-    # direct YYYY-MM-DD in text
     m2 = re.search(r'20\d{2}[-/]\d{1,2}[-/]\d{1,2}', text)
     if m2:
         return m2.group(0)
@@ -165,7 +184,7 @@ def normalize_url(base: str, url: str) -> Optional[str]:
         pass
     return None
 
-# ---------- Scraping helper functions ----------
+# ---------- HTTP helpers ----------
 def fetch(url: str) -> Optional[requests.Response]:
     try:
         logger.info(f"GET {url}")
@@ -177,14 +196,30 @@ def fetch(url: str) -> Optional[requests.Response]:
         logger.warning(f"Request failed: {e}")
     return None
 
+def render_with_selenium(url: str, wait_seconds: int = 3) -> Optional[str]:
+    if not USE_SELENIUM:
+        return None
+    try:
+        opts = Options()
+        opts.headless = True
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
+        driver = webdriver.Chrome(options=opts)
+        driver.get(url)
+        time.sleep(wait_seconds)
+        html = driver.page_source
+        driver.quit()
+        return html
+    except Exception as e:
+        logger.warning(f"Selenium render failed: {e}")
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        return None
+
+# ---------- Node discovery & parsing ----------
 def find_job_nodes(soup: BeautifulSoup) -> List:
-    """
-    Multi-strategy node discovery:
-    1) JobYaari-typical nodes (div.job_listing etc)
-    2) Links with job keywords -> their parent containers
-    3) Generic article/div selectors with content+links
-    """
-    # Strategy specific to JobYaari (common classes)
     CandidateSelectors = [
         "div.job_listing", "div.latest-job", "div.job-box", "div.job-item",
         "li.job", "div.job-listing", "div.listing-item", "article.post", "article"
@@ -195,10 +230,9 @@ def find_job_nodes(soup: BeautifulSoup) -> List:
             logger.debug(f"Selector '{sel}' matched {len(nodes)} nodes")
             return nodes[:200]
 
-    # Strategy: find a-tags with job keywords and capture parents
     keywords = ['recruitment', 'notification', 'vacancy', 'vacancies', 'job', 'exam', 'admit', 'result', 'apply', 'posts', 'position']
     potential = []
-    for a in soup.find_all('a', href=True, limit=300):
+    for a in soup.find_all('a', href=True, limit=400):
         t = a.get_text(separator=" ", strip=True)
         href = a.get('href', '')
         if not t:
@@ -206,7 +240,6 @@ def find_job_nodes(soup: BeautifulSoup) -> List:
         low = (t + " " + href).lower()
         if any(kw in low for kw in keywords) and len(t) > 10:
             parent = a.parent
-            # ascend up to 4 levels to find a container
             for _ in range(4):
                 if parent is None:
                     break
@@ -214,7 +247,6 @@ def find_job_nodes(soup: BeautifulSoup) -> List:
                     potential.append(parent)
                     break
                 parent = parent.parent
-    # dedupe keeping order
     seen = set()
     unique = []
     for el in potential:
@@ -226,10 +258,8 @@ def find_job_nodes(soup: BeautifulSoup) -> List:
             seen.add(key)
             unique.append(el)
     if len(unique) >= 2:
-        logger.debug(f"Strategy Link-Parent found {len(unique)} nodes")
         return unique[:200]
 
-    # Last-resort: any article/div with links and reasonable text
     all_cands = []
     for el in soup.find_all(['article', 'div'], class_=True, limit=400):
         links = el.find_all('a', href=True)
@@ -237,19 +267,14 @@ def find_job_nodes(soup: BeautifulSoup) -> List:
         if links and len(text) > 40:
             all_cands.append(el)
     if all_cands:
-        logger.debug(f"Last-resort found {len(all_cands)} nodes")
         return all_cands[:200]
 
     return []
 
 def parse_job_node(node, base_url: str) -> Optional[Dict[str, Any]]:
-    """
-    Parse job node into a structured item.
-    Returns None if not parseable/valid.
-    """
     try:
-        # Title: try h2/h3/h4 > a then first <a> inside
         title = None
+        url = None
         for sel in ("h2 a", "h3 a", "h4 a", "a"):
             el = node.select_one(sel)
             if el and el.get_text(strip=True):
@@ -257,25 +282,20 @@ def parse_job_node(node, base_url: str) -> Optional[Dict[str, Any]]:
                 url = el.get("href")
                 break
         if not title:
-            # fallback: any strong or heading
             el = node.find(['h2','h3','h4','strong'])
             if el and el.get_text(strip=True):
                 title = el.get_text(strip=True)
             else:
-                # give up if no good title
                 return None
 
-        # If url wasn't set above, try any <a>
-        if 'url' not in locals():
+        if not url:
             link = node.find('a', href=True)
             url = link.get('href') if link else None
-
-        abs_url = normalize_url(base_url, url) if url else None
+        abs_url = normalize_url(base_url, url) if url else ""
 
         full_text = node.get_text(" ", strip=True)
         snippet = full_text[:1200]
 
-        # Try to find organization from small spans or .meta fields
         org = None
         org_selectors = ['.company', '.organization', '.employer', '.meta', '.job_meta', '.job_listing-meta']
         for sel in org_selectors:
@@ -284,37 +304,35 @@ def parse_job_node(node, base_url: str) -> Optional[Dict[str, Any]]:
                 org = el.get_text(strip=True)
                 break
         if not org:
-            # heuristics: look for "by <ORG>" or lines containing Dept/Ministry
             m = re.search(r'by\s+([A-Z][A-Za-z0-9 &,\-]{3,60})', full_text)
             if m:
                 org = m.group(1)
-
         org = org or "Not specified"
 
-        # Extract details by scanning snippet
         vacancies = extract_vacancies(snippet)
         salary = extract_salary(snippet)
         age = extract_age(snippet)
         experience = extract_experience(snippet)
-        qualification = extract_qualification(snippet)
+        qualification_raw = extract_qualification(snippet)
+        qualification = normalize_qualification_to_level(qualification_raw)
         posted = extract_posted_date(snippet)
 
         job = {
             "title": title.strip(),
             "organization": org.strip(),
-            "category": None,  # assigned later
-            "url": abs_url or "",
+            "category": None,
+            "url": abs_url,
             "snippet": snippet,
             "vacancies": vacancies,
             "salary": salary,
             "age": age,
             "experience": experience,
+            "qualification_raw": qualification_raw,
             "qualification": qualification,
             "posted": posted,
             "scraped_at": datetime.utcnow().isoformat() + "Z"
         }
 
-        # basic validation
         if len(job["title"]) < 6:
             return None
         if "advertisement" in job["title"].lower() or "sponsored" in job["title"].lower():
@@ -326,17 +344,10 @@ def parse_job_node(node, base_url: str) -> Optional[Dict[str, Any]]:
         return None
 
 def assign_category(job: Dict[str, Any]) -> str:
-    """Assign a category based on title/snippet/organization keywords"""
-    text = " ".join([
-        job.get("title",""),
-        job.get("snippet",""),
-        job.get("organization","")
-    ]).lower()
-
-    # keyword mapping for categories (extend as necessary)
+    text = " ".join([job.get("title",""), job.get("snippet",""), job.get("organization","")]).lower()
     mapping = {
-        "Engineering": ["engineer", "engineering", "technical", "civil", "mechanical", "electrical", "electronics", "gates", "gate"],
-        "Science": ["research", "scientist", "research fellow", "csir", "icmr", "scientist", "laboratory", "phd", "researcher"],
+        "Engineering": ["engineer", "engineering", "technical", "civil", "mechanical", "electrical", "electronics", "gate", "gates"],
+        "Science": ["research", "scientist", "research fellow", "csir", "icmr", "laboratory", "phd", "researcher"],
         "Commerce": ["bank", "clerk", "account", "commerce", "ibps", "ssc", "rbi", "finance", "accounts"],
         "Education": ["teacher", "lecturer", "professor", "tgt", "pgt", "kvs", "nvs", "education", "teach"]
     }
@@ -344,108 +355,83 @@ def assign_category(job: Dict[str, Any]) -> str:
         for kw in keywords:
             if kw in text:
                 return cat
-    # default fallback: if can't detect, categorize as 'Engineering' (or better: 'Uncategorized' - but keep within required categories)
-    return "Engineering"
+    logger.info(f"Uncategorized: {job.get('title')[:80]}")
+    return "Uncategorized"
 
-# ---------- Main scraping flow ----------
+# ---------- Main ----------
 def scrape_latest_jobs(max_per_category: int = MAX_PER_CATEGORY) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Scrape the latest jobs listing and attempt to produce categorized results.
-    """
     results: Dict[str, List[Dict[str, Any]]] = {c: [] for c in CATEGORIES}
-
     main_url = urljoin(BASE_URL, PRIMARY_LISTING_PATH)
     resp = fetch(main_url)
     if not resp:
-        # Try root
-        logger.warning("Primary listing fetch failed. Trying homepage...")
+        logger.warning("Primary listing fetch failed - trying homepage")
         resp = fetch(BASE_URL)
     if not resp:
-        logger.error("Failed to fetch primary pages. Aborting.")
+        logger.error("Failed to fetch listing pages")
         return results
 
     soup = BeautifulSoup(resp.content, "html.parser")
+    if len(soup.get_text(strip=True)) < 200 and USE_SELENIUM:
+        logger.info("Page seems JS-rendered; rendering with Selenium")
+        html = render_with_selenium(main_url)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
 
-    # If page looks empty (very small), might be JS-rendered
-    if len(soup.get_text(strip=True)) < 200:
-        logger.warning("Page contains very little text -> site may be JS-rendered. "
-                       "Consider using Selenium or an API. Scraper may not work.")
-    
     nodes = find_job_nodes(soup)
     if not nodes:
-        logger.warning("No job nodes found on main listing page. Try /api/inspect or Selenium.")
+        logger.warning("No candidate nodes found on listing page")
         return results
 
-    logger.info(f"Found {len(nodes)} candidate nodes — parsing...")
-
-    # parse nodes
     parsed_jobs = []
     for node in nodes:
         job = parse_job_node(node, BASE_URL)
         if job:
             parsed_jobs.append(job)
+        time.sleep(random.uniform(*DELAY_BETWEEN_REQUESTS))
 
-    logger.info(f"Parsed {len(parsed_jobs)} jobs from listing nodes.")
-
-    # dedupe by normalized URL or title
-    seen_urls = set()
-    seen_titles = set()
+    # dedupe & categorize
+    seen_keys = set()
     for j in parsed_jobs:
-        url = j.get("url") or ""
-        title = (j.get("title") or "").strip()
-        key = url or title.lower()
-        if not key:
+        key = (j.get("url") or "").strip() or j.get("title","").strip().lower()
+        if not key or key in seen_keys:
             continue
-        if key in seen_urls or (title.lower() in seen_titles):
-            continue
-        seen_urls.add(key)
-        seen_titles.add(title.lower())
-
+        seen_keys.add(key)
         cat = assign_category(j)
         j["category"] = cat
-        if len(results[cat]) < max_per_category:
-            results[cat].append(j)
+        if len(results.get(cat, [])) < max_per_category:
+            results.setdefault(cat, []).append(j)
 
-    # If any category is short, optionally try scanning job detail pages or other pages (skipped by default)
-    # NOTE: Could extend to check category-specific pages if known (e.g., /category/engineering)
+    # Ensure each category exists
+    for c in CATEGORIES:
+        results.setdefault(c, [])
+
     return results
 
 def save_results(data: Dict[str, List[Dict[str, Any]]], outfile: str = OUTPUT_FILE) -> bool:
     try:
-        # Ensure consistent ordering and simple objects
-        with open(outfile + ".tmp", "w", encoding="utf-8") as f:
+        tmp = outfile + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(outfile + ".tmp", outfile)
+        os.replace(tmp, outfile)
         logger.info(f"Saved {sum(len(v) for v in data.values())} jobs to {outfile}")
         return True
     except Exception as e:
         logger.exception(f"Failed to save results: {e}")
         return False
 
-# ---------- CLI ----------
 def main():
     random.seed()
-    logger.info("Starting JobYaariScraperEnhanced (local run)")
-
-    try:
-        data = scrape_latest_jobs(MAX_PER_CATEGORY)
-        total = sum(len(v) for v in data.values())
-        logger.info(f"Scraping complete. Total jobs collected: {total}")
-
-        # Show short summary
-        for c in CATEGORIES:
-            logger.info(f"  {c}: {len(data.get(c, []))} jobs")
-
-        saved = save_results(data, OUTPUT_FILE)
-        if saved:
-            logger.info("All done.")
-        else:
-            logger.error("Could not save output.")
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user.")
-    except Exception as e:
-        logger.exception(f"Unhandled error: {e}")
-
+    logger.info("Starting scrapper.py")
+    data = scrape_latest_jobs(MAX_PER_CATEGORY)
+    total = sum(len(v) for v in data.values())
+    logger.info(f"Collected {total} jobs")
+    for c in CATEGORIES:
+        logger.info(f" {c}: {len(data.get(c, []))}")
+    saved = save_results(data, OUTPUT_FILE)
+    if saved:
+        logger.info("Done")
+    else:
+        logger.error("Save failed")
 
 if __name__ == "__main__":
     main()
