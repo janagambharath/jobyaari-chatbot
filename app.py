@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import requests
+from bs4 import BeautifulSoup
 import json
 import os
 from datetime import datetime
@@ -73,8 +74,10 @@ def query_ai_model(user_message, context):
         print("❌ OPENROUTER_API_KEY not set. Using simple fallback.")
         return simple_query_response(user_message, context)
 
+    # FIX: Ensure the triple-quoted f-string is properly terminated
     system_prompt = f"""You are a helpful and friendly JobYaari assistant. Your goal is to help users find Indian job notifications.
 
 **Current Job Data (Knowledge Base):**
 ```json
 {json.dumps(context, indent=2)}
+    
